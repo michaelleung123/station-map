@@ -4,6 +4,7 @@
 <title>消防局及救護站分佈地圖</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <style>
 *{box-sizing:border-box}html,body{margin:0;height:100%;font-family:-apple-system,"PingFang HK","Microsoft JhengHei",sans-serif;color:#1f2328}
 #app{display:flex;height:100%}
@@ -36,13 +37,14 @@ label.tg{font-size:13px;display:flex;align-items:center;gap:6px}
 .btn{border:1px solid #1f2328;background:#1f2328;color:#fff;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer}
 .btn.ghost{background:#fff;color:#1f2328}
 #hlmsg{font-size:12px;margin-top:6px;line-height:1.6}#hlmsg .miss{color:#c0392b}#hlmsg .ok{color:#1a7f37}
-.hlpin{position:relative}
+.hlpin{background:none;border:none}
 .hlpin .n{position:absolute;left:0;top:0;width:28px;height:28px;border-radius:50%;background:#ffd400;border:3px solid #1f2328;color:#1f2328;font:700 13px/22px sans-serif;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.4)}
 .hlpin .r{position:absolute;left:-10px;top:-10px;width:48px;height:48px;border-radius:50%;border:4px solid #ffb000;animation:pulse 1.4s ease-out infinite}
 @keyframes pulse{0%{transform:scale(.5);opacity:1}100%{transform:scale(1.5);opacity:0}}
 .item.hl{background:#fff7cc}.item .num{flex:none;width:22px;height:22px;border-radius:50%;background:#ffd400;border:2px solid #1f2328;font:700 11px/18px sans-serif;text-align:center}
 .clrall{display:none;background:#c0392b;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-size:14px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.35);cursor:pointer}
 .clrall.show{display:block}
+.pop .veh{color:#6a3d00;font-weight:700}
 @media(max-width:760px){#app{flex-direction:column-reverse}#side{width:100%;height:45%;overflow:auto}#list{flex:none;overflow:visible}#map{height:55%}}
 </style></head><body>
 <div id="app">
@@ -54,6 +56,8 @@ label.tg{font-size:13px;display:flex;align-items:center;gap:6px}
    <div class="chips" id="regions"></div>
    <details class="hlbox" id="hlbox"><summary>⭐ 標記多個地點</summary>
     <textarea id="hlq" placeholder="輸入多個站名或編號，用空格、逗號或換行分隔&#10;例如：柴灣 CWN 沙田消防局"></textarea>
+    <label class="btn ghost" style="display:block;text-align:center;margin-top:6px;border-style:dashed">📷 上載圖片自動標記<input type="file" id="hlimg" accept="image/*" style="display:none"></label>
+    <div id="ocrmsg" style="font-size:12px;color:#666"></div>
     <div class="btns"><button class="btn" id="hlgo">標記</button><button class="btn ghost" id="hlclr">清除所有標記</button><button class="btn ghost" id="hlshare">複製分享連結</button></div>
     <label class="tg" style="margin-top:6px"><input type="checkbox" id="hlonly"> 清單只顯示已標記</label>
     <div id="hlmsg"></div>
@@ -115,7 +119,7 @@ function render(){
  document.getElementById('count').textContent=`顯示 ${vis.length} / ${DATA.length} 個地點`;
 }
 // ===== 標記多個地點 =====
-let HL=[];const hlLayer=L.layerGroup().addTo(map);
+let HL=[];let VEH={};const hlLayer=L.layerGroup().addTo(map);
 const norm=t=>t.toLowerCase().replace(/\s/g,'');
 function doHL(text,fit){
  DATA.forEach(d=>d.hn=0);HL=[];hlLayer.clearLayers();
@@ -128,6 +132,8 @@ function doHL(text,fit){
   if(!hit.length){miss.push(t);return}
   hit.forEach(d=>{if(!d.hn){d.hn=++n;HL.push(d)}})});
  HL.forEach(d=>{const mk=L.marker([d.plat,d.plng],{zIndexOffset:1000,icon:L.divIcon({className:'hlpin',html:'<div class="r"></div><div class="n">'+d.hn+'</div>',iconSize:[28,28],iconAnchor:[14,14],popupAnchor:[0,-14]})}).bindPopup(d.pop);hlLayer.addLayer(mk)});
+ HL.forEach(d=>{const v=VEH[d.code];const html=v&&v.length?d.pop.replace('</div></div>',`</div><div class="veh">圖片車輛（讀圖結果，僅供參考）：${v.join('、')}</div></div>`):d.pop;hlLayer.getLayers().forEach(m=>{});d._hpop=html});
+ hlLayer.getLayers().forEach((m,i)=>m.setPopupContent(HL[i]._hpop));
  const msg=document.getElementById('hlmsg');
  msg.innerHTML=(toks.length?`<div class="ok">已標記 ${HL.length} 個地點</div>`:'')+(miss.length?`<div class="miss">搵唔到：${miss.join('、')}</div>`:'');
  if(fit&&HL.length){HL.length===1?map.setView([HL[0].plat,HL[0].plng],15):map.fitBounds(L.latLngBounds(HL.map(d=>[d.plat,d.plng])),{padding:[40,40],maxZoom:15})}
@@ -137,13 +143,50 @@ function doHL(text,fit){
 }
 document.getElementById('hlgo').onclick=()=>doHL(document.getElementById('hlq').value,true);
 document.getElementById('hlq').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();doHL(e.target.value,true)}});
-const clearAll=()=>{document.getElementById('hlq').value='';doHL('',false)};
+const clearAll=()=>{document.getElementById('hlq').value='';VEH={};document.getElementById('ocrmsg').textContent='';doHL('',false)};
 document.getElementById('hlclr').onclick=clearAll;
 const clrCtl=L.control({position:'topleft'});
 clrCtl.onAdd=()=>{const b=L.DomUtil.create('button','clrall');b.id='clrall';b.textContent='✖ 清除所有標記';L.DomEvent.disableClickPropagation(b);b.onclick=clearAll;return b};
 clrCtl.addTo(map);
 document.getElementById('hlonly').onchange=render;
 document.getElementById('hlshare').onclick=()=>{const u=location.href;(navigator.clipboard?navigator.clipboard.writeText(u):Promise.reject()).then(()=>alert('已複製連結，可以貼去 WhatsApp'),()=>prompt('複製呢條連結：',u))};
+// ===== 上載圖片 → 自動讀取站編號 =====
+const CODES=new Set(DATA.map(d=>d.code));
+async function loadImg(file){try{return await createImageBitmap(file)}catch(e){return await new Promise((ok,no)=>{const u=URL.createObjectURL(file),im=new Image();im.onload=()=>ok(im);im.onerror=()=>no(new Error('呢個圖片格式讀唔到，請用 JPG 或 PNG（可以截圖再上載）'));im.src=u})}}
+async function prep(file){const img=await loadImg(file);const sc=Math.max(1,Math.min(3,1050/img.width));
+ const c=document.createElement('canvas');c.width=img.width*sc;c.height=img.height*sc;const g=c.getContext('2d');g.imageSmoothingQuality='high';g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.drawImage(img,0,0,c.width,c.height);return c}
+const isVeh=t=>/^[AF](?=.*\d)[0-9A-Z]{2,4}$/.test(t);
+document.getElementById('hlimg').onchange=async e=>{
+ const f=e.target.files[0];e.target.value='';if(!f)return;const om=document.getElementById('ocrmsg');
+ if(!window.Tesseract){om.textContent='圖片讀取工具載入失敗，請檢查網絡後重試';return}
+ om.textContent='讀取圖片中…（第一次用要下載讀字工具，約 10–20 秒）';
+ try{const cv=await prep(f);
+  const w=await Tesseract.createWorker('eng',1,{logger:m=>{if(m.status==='recognizing text')om.textContent='讀取圖片中…（'+(window._lab||'')+'）'+Math.round(m.progress*100)+'%'}});
+  const found=[],u11=new Set(),t4=new Set();VEH={};
+  const addV=(c,v)=>{if(v){VEH[c]=VEH[c]||[];if(!VEH[c].includes(v))VEH[c].push(v)}};
+  const tk=l=>l.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+  for(const [ps,lab] of [['11','1/2'],['4','2/2']]){
+   window._lab=lab;
+   await w.setParameters({tessedit_pageseg_mode:ps});
+   const {data}=await w.recognize(cv);
+   (ps==='11'?[data.text.replace(/\n+/g,' ')]:data.text.split('\n')).forEach(line=>{const t=tk(line);
+    t.forEach((x,i)=>{const v=isVeh(t[i+1]||'')?t[i+1]:null;
+     if(CODES.has(x)){if(!found.includes(x))found.push(x);addV(x,v)}
+     else if(ps==='11'&&/^[A-Z]{3}$/.test(x)&&v)u11.add(x);
+     if(ps==='4')t4.add(x)})});
+  }
+  await w.terminate();
+  const unk=[...u11].filter(x=>t4.has(x));
+  // 同一編號有消防局同救護站：車輛 A 開頭 → 救護站，F 開頭 → 消防局
+  const toks=found.map(c=>{const ds=DATA.filter(d=>d.code===c);const v=VEH[c]||[];
+   if(ds.length>1&&v.length){const want=new Set(v.map(x=>x[0]==='A'?'救護站':'消防局'));const pick=ds.filter(d=>want.has(d.type));if(pick.length&&pick.length<ds.length)return pick.map(d=>d.name).join(' ')}
+   return c});
+  if(!found.length){om.textContent='圖片入面搵唔到站編號，可以試吓影清楚啲或者手動輸入';return}
+  document.getElementById('hlq').value=toks.join(' ');
+  om.innerHTML=`<span style="color:#1a7f37">圖片讀到 ${found.length} 個站編號</span>`+(unk.length?`<br><span style="color:#c0392b">圖片有但地圖冇呢啲編號：${unk.join('、')}</span>`:'')+'<br>請核對上面輸入框，如有錯漏可以直接改，再撳「標記」';
+  doHL(toks.join(' '),true);
+ }catch(err){console.error(err);om.textContent='讀取失敗：'+err.message}
+};
 render();
 const mh=location.hash.match(/^#hl=(.+)$/);
 if(mh){const t=decodeURIComponent(mh[1]).replace(/,/g,' ');document.getElementById('hlq').value=t;document.getElementById('hlbox').open=true;doHL(t,true)}
