@@ -41,6 +41,8 @@ label.tg{font-size:13px;display:flex;align-items:center;gap:6px}
 .hlpin .r{position:absolute;left:-10px;top:-10px;width:48px;height:48px;border-radius:50%;border:4px solid #ffb000;animation:pulse 1.4s ease-out infinite}
 @keyframes pulse{0%{transform:scale(.5);opacity:1}100%{transform:scale(1.5);opacity:0}}
 .item.hl{background:#fff7cc}.item .num{flex:none;width:22px;height:22px;border-radius:50%;background:#ffd400;border:2px solid #1f2328;font:700 11px/18px sans-serif;text-align:center}
+.clrall{display:none;background:#c0392b;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-size:14px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.35);cursor:pointer}
+.clrall.show{display:block}
 @media(max-width:760px){#app{flex-direction:column-reverse}#side{width:100%;height:45%;overflow:auto}#list{flex:none;overflow:visible}#map{height:55%}}
 </style></head><body>
 <div id="app">
@@ -52,7 +54,7 @@ label.tg{font-size:13px;display:flex;align-items:center;gap:6px}
    <div class="chips" id="regions"></div>
    <details class="hlbox" id="hlbox"><summary>⭐ 標記多個地點</summary>
     <textarea id="hlq" placeholder="輸入多個站名或編號，用空格、逗號或換行分隔&#10;例如：柴灣 CWN 沙田消防局"></textarea>
-    <div class="btns"><button class="btn" id="hlgo">標記</button><button class="btn ghost" id="hlclr">清除</button><button class="btn ghost" id="hlshare">複製分享連結</button></div>
+    <div class="btns"><button class="btn" id="hlgo">標記</button><button class="btn ghost" id="hlclr">清除所有標記</button><button class="btn ghost" id="hlshare">複製分享連結</button></div>
     <label class="tg" style="margin-top:6px"><input type="checkbox" id="hlonly"> 清單只顯示已標記</label>
     <div id="hlmsg"></div>
    </details>
@@ -130,11 +132,16 @@ function doHL(text,fit){
  msg.innerHTML=(toks.length?`<div class="ok">已標記 ${HL.length} 個地點</div>`:'')+(miss.length?`<div class="miss">搵唔到：${miss.join('、')}</div>`:'');
  if(fit&&HL.length){HL.length===1?map.setView([HL[0].plat,HL[0].plng],15):map.fitBounds(L.latLngBounds(HL.map(d=>[d.plat,d.plng])),{padding:[40,40],maxZoom:15})}
  history.replaceState(null,'',toks.length?'#hl='+encodeURIComponent(toks.join(',')):location.pathname+location.search);
+ document.getElementById('clrall')&&document.getElementById('clrall').classList.toggle('show',HL.length>0);
  render();
 }
 document.getElementById('hlgo').onclick=()=>doHL(document.getElementById('hlq').value,true);
 document.getElementById('hlq').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();doHL(e.target.value,true)}});
-document.getElementById('hlclr').onclick=()=>{document.getElementById('hlq').value='';doHL('',false)};
+const clearAll=()=>{document.getElementById('hlq').value='';doHL('',false)};
+document.getElementById('hlclr').onclick=clearAll;
+const clrCtl=L.control({position:'topleft'});
+clrCtl.onAdd=()=>{const b=L.DomUtil.create('button','clrall');b.id='clrall';b.textContent='✖ 清除所有標記';L.DomEvent.disableClickPropagation(b);b.onclick=clearAll;return b};
+clrCtl.addTo(map);
 document.getElementById('hlonly').onchange=render;
 document.getElementById('hlshare').onclick=()=>{const u=location.href;(navigator.clipboard?navigator.clipboard.writeText(u):Promise.reject()).then(()=>alert('已複製連結，可以貼去 WhatsApp'),()=>prompt('複製呢條連結：',u))};
 render();
