@@ -46,6 +46,9 @@ label.tg{font-size:13px;display:flex;align-items:center;gap:6px}
 .clrall{display:none;background:#c0392b;color:#fff;border:2px solid #fff;border-radius:999px;padding:5px 11px;font-size:12px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.35);cursor:pointer}
 .clrall.show{display:block}
 .pop .veh{color:#6a3d00;font-weight:700}
+.item .vehline{color:#6a3d00;font-weight:700}
+.vlabwrap{background:none;border:none}
+.vlab{display:inline-block;max-width:150px;background:rgba(255,248,220,.96);border:1px solid #1f2328;border-radius:4px;padding:1px 5px;font:700 11px/1.35 -apple-system,"PingFang HK","Microsoft JhengHei",sans-serif;color:#5c3b00;box-shadow:0 1px 3px rgba(0,0,0,.35);white-space:normal}
 @media(max-width:760px){#app{flex-direction:column-reverse}#side{width:100%;height:45%;overflow:auto}#list{flex:none;overflow:visible}#map{height:55%}}
 </style></head><body>
 <div id="app">
@@ -115,13 +118,21 @@ function render(){
  vis.forEach(d=>{layer.addLayer(d.m);showL?d.m.openTooltip():d.m.closeTooltip();
   d.m.setStyle({fillOpacity:hlOn&&!d.hn?.3:.9,opacity:hlOn&&!d.hn?.4:1});
   const it=document.createElement('div');it.className='item'+(d.hn?' hl':'');
-  it.innerHTML=(d.hn?`<span class="num">${d.hn}</span>`:`<span class="dot" style="background:${COLOR[d.type]}"></span>`)+`<div><b>${d.name}</b> <span class="meta">${d.code}${d.alias?'/'+d.alias:''}</span><div class="meta">${d.region}・${d.tel}${d.addr?'・'+d.addr:''}</div></div>`;
+  const plates=vehsFor(d);
+  it.innerHTML=(d.hn?`<span class="num">${d.hn}</span>`:`<span class="dot" style="background:${COLOR[d.type]}"></span>`)+`<div><b>${d.name}</b> <span class="meta">${d.code}${d.alias?'/'+d.alias:''}</span><div class="meta">${d.region}・${d.tel}${d.addr?'・'+d.addr:''}</div>${plates.length?`<div class="meta vehline">車牌：${plates.join('、')}</div>`:''}</div>`;
   it.onclick=()=>{map.setView([d.plat,d.plng],16);d.m.openPopup()};list.appendChild(it)});
  document.getElementById('count').textContent=`顯示 ${vis.length} / ${DATA.length} 個地點`;
 }
 // ===== 標記多個地點 =====
 let HL=[];let VEH={};const hlLayer=L.layerGroup().addTo(map);
 const norm=t=>t.toLowerCase().replace(/\s/g,'');
+function vehsFor(d){
+ const all=[...new Set([...(VEH[d.code]||[]),...(d.alias&&VEH[d.alias]||[])])];
+ if(!all.length)return [];
+ const mates=DATA.filter(x=>x!==d&&(x.code===d.code||(d.alias&&(x.code===d.alias||x.alias===d.alias))));
+ if(!mates.length)return all;
+ return all.filter(x=>(x[0]==='A'?'救護站':'消防局')===d.type);
+}
 function doHL(text,fit){
  DATA.forEach(d=>d.hn=0);HL=[];hlLayer.clearLayers();
  const toks=[...new Set(text.split(/[\s,，、;；\/|]+/).map(t=>t.trim()).filter(Boolean))];
@@ -132,9 +143,17 @@ function doHL(text,fit){
   if(!hit.length)hit=DATA.filter(d=>norm(d.name).includes(k));
   if(!hit.length){miss.push(t);return}
   hit.forEach(d=>{if(!d.hn){d.hn=++n;HL.push(d)}})});
- HL.forEach(d=>{const mk=L.marker([d.plat,d.plng],{zIndexOffset:1000,icon:L.divIcon({className:'hlpin',html:'<div class="r"></div><div class="n">'+d.hn+'</div>',iconSize:[28,28],iconAnchor:[14,14],popupAnchor:[0,-14]})}).bindPopup(d.pop);hlLayer.addLayer(mk)});
- HL.forEach(d=>{const v=VEH[d.code]||VEH[d.alias];const html=v&&v.length?d.pop.replace('</div></div>',`</div><div class="veh">圖片車輛（讀圖結果，僅供參考）：${v.join('、')}</div></div>`):d.pop;hlLayer.getLayers().forEach(m=>{});d._hpop=html});
- hlLayer.getLayers().forEach((m,i)=>m.setPopupContent(HL[i]._hpop));
+ HL.forEach(d=>{
+  const v=vehsFor(d);
+  const html=v.length?d.pop.replace(/<\/div>\s*$/,'<div class="veh">車牌：'+v.join('、')+'</div></div>'):d.pop;
+  d._hpop=html;
+  const mk=L.marker([d.plat,d.plng],{zIndexOffset:1000,icon:L.divIcon({className:'hlpin',html:'<div class="r"></div><div class="n">'+d.hn+'</div>',iconSize:[28,28],iconAnchor:[14,14],popupAnchor:[0,-14]})}).bindPopup(html);
+  hlLayer.addLayer(mk);
+  if(v.length){
+   const lab=L.marker([d.plat,d.plng],{interactive:false,zIndexOffset:900,icon:L.divIcon({className:'vlabwrap',html:'<div class="vlab">'+v.join(' ')+'</div>',iconSize:[0,0],iconAnchor:[-18,8]})});
+   hlLayer.addLayer(lab);
+  }
+ });
  const msg=document.getElementById('hlmsg');
  msg.innerHTML=(toks.length?`<div class="ok">已標記 ${HL.length} 個地點</div>`:'')+(miss.length?`<div class="miss">搵唔到：${miss.join('、')}</div>`:'');
  if(fit&&HL.length){HL.length===1?map.setView([HL[0].plat,HL[0].plng],15):map.fitBounds(L.latLngBounds(HL.map(d=>[d.plat,d.plng])),{padding:[40,40],maxZoom:15})}
@@ -184,7 +203,8 @@ document.getElementById('hlimg').onchange=async e=>{
    return c});
   if(!found.length){om.textContent='圖片入面搵唔到站編號，可以試吓影清楚啲或者手動輸入';return}
   document.getElementById('hlq').value=toks.join(' ');
-  om.innerHTML=`<span style="color:#1a7f37">圖片讀到 ${found.length} 個站編號</span>`+(unk.length?`<br><span style="color:#c0392b">圖片有但地圖冇呢啲編號：${unk.join('、')}</span>`:'')+'<br>請核對上面輸入框，如有錯漏可以直接改，再撳「標記」';
+  const plateN=Object.values(VEH).reduce((n,a)=>n+a.length,0);
+  om.innerHTML=`<span style="color:#1a7f37">圖片讀到 ${found.length} 個站編號${plateN?`、${plateN} 個車牌，已標喺地圖上`:''}</span>`+(unk.length?`<br><span style="color:#c0392b">圖片有但地圖冇呢啲編號：${unk.join('、')}</span>`:'')+'<br>請核對上面輸入框，如有錯漏可以直接改，再撳「標記」';
   doHL(toks.join(' '),true);
  }catch(err){console.error(err);om.textContent='讀取失敗：'+err.message}
 };
